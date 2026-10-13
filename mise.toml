@@ -1,0 +1,8 @@
+[tasks.build]
+description = "Bundle src/ (incl. emoji.json) into main.js"
+run = "npm run build"
+
+[tasks.deploy]
+description = "Build, then copy the runtime files into the vault's plugin folder (OBSIDIAN_PLUGIN_DIR, set in mise.local.toml)"
+depends = ["build"]
+run = 'cp main.js manifest.json styles.css "$OBSIDIAN_PLUGIN_DIR/"'

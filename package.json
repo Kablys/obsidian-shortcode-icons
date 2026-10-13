@@ -1,0 +1,10 @@
+{
+  "name": "obsidian-shortcode-icons",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --format=cjs --platform=browser --target=es2021 --external:obsidian --external:@codemirror/* --outfile=main.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -1,0 +1,32 @@
+name: Release
+
+# Push a tag equal to manifest.json's version (e.g. `git tag 0.7.2 && git push origin 0.7.2`).
+on:
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      # Obsidian finds a plugin's release by the tag that equals manifest.json's version
+      - name: Tag must match manifest version
+        run: |
+          v=$(node -p "require('./manifest.json').version")
+          if [ "$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME != manifest.json version $v"; exit 1
+          fi
+      - run: npm ci
+      - run: npm run build
+      - name: Create release with the three files Obsidian installs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css --title "$GITHUB_REF_NAME" --generate-notes

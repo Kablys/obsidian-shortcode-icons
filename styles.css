@@ -1,0 +1,61 @@
+.inline-icon {
+  display: inline-flex;
+  vertical-align: -0.2em;
+}
+/* size is themeable: set --inline-icon-size on body or a snippet to scale all inline icons */
+.inline-icon svg {
+  width: var(--inline-icon-size, 1em);
+  height: var(--inline-icon-size, 1em);
+}
+/* colored custom icons register as a nested <svg> — make it fill the outer icon box */
+.inline-icon svg svg {
+  width: 100%;
+  height: 100%;
+}
+.inline-emoji {
+  font-style: normal;
+  line-height: 1;
+}
+.inline-icon-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* icons that link to a note: keep the glyph clean (no underline/link color), just a pointer */
+.inline-icon-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* settings tab: custom-icon gallery */
+.inline-icons-hint {
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+  margin: 4px 0 8px;
+}
+.inline-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.inline-icons-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.inline-icons-cell:hover {
+  background: var(--background-modifier-hover);
+}
+.inline-icons-cell .inline-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.inline-icons-cell code {
+  font-size: var(--font-smaller);
+  color: var(--text-muted);
+}
