@@ -2,7 +2,6 @@
 
 Render `:shortcode:` icons inline in your notes — your own SVG logos, the full Lucide set built into Obsidian, and emoji — in both Live Preview and Reading view.
 
-![demo](demo.gif)
 
 ## Features
 
