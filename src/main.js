@@ -1,6 +1,6 @@
 const {
   Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice,
-  setIcon, getIcon, getIconIds, addIcon, removeIcon, TFile, TFolder,
+  setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, TFile, TFolder,
 } = require("obsidian");
 const { ViewPlugin, Decoration, WidgetType, EditorView } = require("@codemirror/view");
 const { RangeSetBuilder, StateEffect } = require("@codemirror/state");
@@ -133,13 +133,13 @@ const refreshEffect = StateEffect.define();
 function buildTokenEl(app, r, token, insideLink) {
   const tip = `:${token}:`;
   const glyph = r.char
-    ? createSpan({ cls: "inline-emoji", text: r.char, attr: { "aria-label": tip } })
-    : createSpan({ cls: "inline-icon", attr: { "aria-label": tip, role: "img" } });
+    ? createSpan({ cls: "sci-emoji", text: r.char, attr: { "aria-label": tip } })
+    : createSpan({ cls: "sci-icon", attr: { "aria-label": tip, role: "img" } });
   if (r.icon) setIcon(glyph, r.icon);
   if (insideLink || !settings.autoLink) return glyph;
   const dest = app.metadataCache.getFirstLinkpathDest(token, ""); // resolves via aliases too
   if (!dest) return glyph;
-  const a = createEl("a", { cls: "internal-link inline-icon-link", attr: { href: dest.path, "data-href": dest.path } });
+  const a = createEl("a", { cls: "internal-link sci-icon-link", attr: { href: dest.path, "data-href": dest.path } });
   a.append(glyph);
   a.addEventListener("click", (evt) => {
     evt.preventDefault();
@@ -203,30 +203,52 @@ function livePreviewExt(app) {
   );
 }
 
+const SOURCE_RANK = { custom: 0, icon: 1, emoji: 2 };
+const TOKEN = /^[a-z0-9][a-z0-9_-]*[a-z0-9]$/;
+
+// Every typeable shortcode, resolved exactly as it will render (Lucide ids lose their "lucide-"
+// prefix; an emoji shadowed by an icon of the same name resolves to the icon).
+function buildCandidates(customIds) {
+  const names = new Set(customIds);
+  for (const id of getIconIds()) names.add(id.startsWith("lucide-") ? id.slice(7) : id);
+  if (settings.emoji) for (const k of Object.keys(emoji)) names.add(k);
+  const out = [];
+  for (const name of names) {
+    const r = TOKEN.test(name) && resolve(name);
+    if (r) out.push({ name, r, source: r.char ? "emoji" : customIds.has(r.icon) ? "custom" : "icon" });
+  }
+  return out;
+}
+
 class IconSuggest extends EditorSuggest {
-  constructor(app) { super(app); }
+  constructor(app, plugin) { super(app); this.plugin = plugin; }
   onTrigger(cursor, editor) {
     const line = editor.getLine(cursor.line).slice(0, cursor.ch);
     const m = line.match(/(?:^|[^a-z0-9_-]):([a-z0-9_-]{2,})$/);
     if (!m) return null;
     return { start: { line: cursor.line, ch: cursor.ch - m[1].length - 1 }, end: cursor, query: m[1] };
   }
+  // Rank: exact name, then prefix, then your own icons before Lucide before emoji, then fuzzy score.
   getSuggestions(ctx) {
-    const q = ctx.query;
-    const icons = getIconIds().filter((id) => id.includes(q));
-    // only emoji whose shortcode isn't already an icon (matches resolve's icon-first order)
-    const emo = settings.emoji ? Object.keys(emoji).filter((k) => k.includes(q) && !getIcon(k) && !getIcon("lucide-" + k)) : [];
-    return [...icons, ...emo].slice(0, 50);
+    const q = ctx.query, fuzzy = prepareFuzzySearch(q), hits = [];
+    for (const c of this.plugin.candidates()) {
+      const m = fuzzy(c.name);
+      if (m) hits.push({ c, exact: c.name === q ? 0 : 1, prefix: c.name.startsWith(q) ? 0 : 1, score: m.score });
+    }
+    hits.sort((a, b) => a.exact - b.exact || a.prefix - b.prefix
+      || SOURCE_RANK[a.c.source] - SOURCE_RANK[b.c.source] || b.score - a.score);
+    return hits.slice(0, 50).map((h) => h.c);
   }
-  renderSuggestion(id, el) {
-    el.addClass("inline-icon-suggestion");
-    if (getIcon(id)) setIcon(el.createSpan({ cls: "inline-icon" }), id);
-    else if (emoji[id]) el.createSpan({ cls: "inline-emoji", text: emoji[id] });
-    el.createSpan({ text: id });
+  renderSuggestion(c, el) {
+    el.addClass("sci-suggestion");
+    if (c.r.char) el.createSpan({ cls: "sci-emoji", text: c.r.char });
+    else setIcon(el.createSpan({ cls: "sci-icon" }), c.r.icon);
+    el.createSpan({ text: c.name });
+    el.createSpan({ cls: "sci-suggestion-source", text: c.source });
   }
-  selectSuggestion(id) {
+  selectSuggestion(c) {
     const { editor, start, end } = this.context;
-    editor.replaceRange(`:${id}:`, start, end);
+    editor.replaceRange(`:${c.name}:`, start, end);
   }
 }
 
@@ -247,7 +269,7 @@ module.exports = class InlineIconsPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.onRename(file, oldPath)));
 
     this.registerEditorExtension(livePreviewExt(this.app));
-    this.registerEditorSuggest(new IconSuggest(this.app));
+    this.registerEditorSuggest(new IconSuggest(this.app, this));
     this.registerMarkdownPostProcessor((el) => this.processReading(el));
     this.addSettingTab(new InlineIconsSettingTab(this.app, this));
   }
@@ -262,8 +284,14 @@ module.exports = class InlineIconsPlugin extends Plugin {
   }
   async saveSettings() {
     await this.saveData(settings);
-    await this.loadCustomIcons(); // folder may have changed
+    await this.loadCustomIcons(); // folder may have changed (also drops the suggestion cache)
     this.refresh();
+  }
+
+  // shortcut: rebuilt only when our icons or settings change, so icons other plugins register
+  // later won't be suggested until then
+  candidates() {
+    return (this._candidates ??= buildCandidates(this.registeredIcons));
   }
 
   async loadCustomIcons() {
@@ -282,6 +310,7 @@ module.exports = class InlineIconsPlugin extends Plugin {
     // unregister icons whose files were renamed/deleted so stale ids don't linger in the registry
     for (const id of this.registeredIcons) if (!next.has(id)) removeIcon(id);
     this.registeredIcons = next;
+    this._candidates = null;
   }
 
   // When an icon .svg is renamed inside Obsidian, follow it: re-register, and (if enabled) rewrite
@@ -368,14 +397,14 @@ class InlineIconsSettingTab extends PluginSettingTab {
 
     const ids = [...(this.plugin.registeredIcons || [])].sort();
     new Setting(containerEl).setName(`Custom icons (${ids.length})`).setHeading();
-    containerEl.createEl("p", { cls: "inline-icons-hint", text: "Click an icon to copy its shortcode." });
-    const grid = containerEl.createDiv({ cls: "inline-icons-grid" });
+    containerEl.createEl("p", { cls: "sci-gallery-hint", text: "Click an icon to copy its shortcode." });
+    const grid = containerEl.createDiv({ cls: "sci-gallery-grid" });
     for (const id of ids) {
-      const cell = grid.createDiv({ cls: "inline-icons-cell", attr: { "aria-label": `:${id}:` } });
-      setIcon(cell.createSpan({ cls: "inline-icon" }), id);
+      const cell = grid.createDiv({ cls: "sci-gallery-cell", attr: { "aria-label": `:${id}:` } });
+      setIcon(cell.createSpan({ cls: "sci-icon" }), id);
       cell.createEl("code", { text: `:${id}:` });
       cell.addEventListener("click", () => { navigator.clipboard.writeText(`:${id}:`); new Notice(`Copied :${id}:`); });
     }
-    if (!ids.length) containerEl.createEl("p", { cls: "inline-icons-hint", text: `No .svg files found in "${settings.iconFolder}/".` });
+    if (!ids.length) containerEl.createEl("p", { cls: "sci-gallery-hint", text: `No .svg files found in "${settings.iconFolder}/".` });
   }
 }

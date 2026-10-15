@@ -1,45 +1,45 @@
-.inline-icon {
+.sci-icon {
   display: inline-flex;
   vertical-align: -0.2em;
 }
-/* size is themeable: set --inline-icon-size on body or a snippet to scale all inline icons */
-.inline-icon svg {
-  width: var(--inline-icon-size, 1em);
-  height: var(--inline-icon-size, 1em);
+/* size is themeable: set --sci-icon-size on body or a snippet to scale all inline icons */
+.sci-icon svg {
+  width: var(--sci-icon-size, 1em);
+  height: var(--sci-icon-size, 1em);
 }
 /* colored custom icons register as a nested <svg> — make it fill the outer icon box */
-.inline-icon svg svg {
+.sci-icon svg svg {
   width: 100%;
   height: 100%;
 }
-.inline-emoji {
+.sci-emoji {
   font-style: normal;
   line-height: 1;
 }
-.inline-icon-suggestion {
+.sci-suggestion {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 /* icons that link to a note: keep the glyph clean (no underline/link color), just a pointer */
-.inline-icon-link {
+.sci-icon-link {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
 }
 
 /* settings tab: custom-icon gallery */
-.inline-icons-hint {
+.sci-gallery-hint {
   color: var(--text-muted);
   font-size: var(--font-smaller);
   margin: 4px 0 8px;
 }
-.inline-icons-grid {
+.sci-gallery-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
 }
-.inline-icons-cell {
+.sci-gallery-cell {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -48,14 +48,19 @@
   border-radius: 6px;
   cursor: pointer;
 }
-.inline-icons-cell:hover {
+.sci-gallery-cell:hover {
   background: var(--background-modifier-hover);
 }
-.inline-icons-cell .inline-icon svg {
+.sci-gallery-cell .sci-icon svg {
   width: 20px;
   height: 20px;
 }
-.inline-icons-cell code {
+.sci-gallery-cell code {
   font-size: var(--font-smaller);
   color: var(--text-muted);
+}
+.sci-suggestion-source {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
 }
