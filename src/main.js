@@ -1,6 +1,6 @@
 import {
   Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice,
-  setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, TFile, TFolder,
+  setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, arrayBufferToBase64, TFile, TFolder,
 } from "obsidian";
 import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view";
 import { RangeSetBuilder, StateEffect } from "@codemirror/state";
@@ -10,6 +10,9 @@ import { syntaxTree } from "@codemirror/language";
 // underscores allowed for emoji shortcodes like :white_check_mark:
 const RE = /:([a-z0-9][a-z0-9_-]*[a-z0-9]):/g;
 const DEFAULT_SETTINGS = { iconFolder: "icons", autoLink: true, emoji: true, renameSweep: true };
+// Raster icons are embedded as a data URI inside a small SVG, so they go through addIcon like SVGs.
+const RASTER = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", ico: "image/x-icon" };
+const isIconPath = (p) => typeof p === "string" && p.startsWith(settings.iconFolder + "/") && /\.(svg|png|jpe?g|ico)$/i.test(p);
 const customId = (basename) => basename.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 // module-level shared state (functions below close over these)
@@ -17,6 +20,7 @@ const customId = (basename) => basename.toLowerCase().replace(/[^a-z0-9]+/g, "-"
 import emoji from "./emoji.json";           // shortcode -> unicode char (from github/gemoji)
 const editorViews = new Set();
 let settings = { ...DEFAULT_SETTINGS };     // kept in sync by the plugin instance
+let iconsVersion = 0;                       // bumped on every icon reload so rendered icons refresh
 
 // ---------- dark-theme adaptation ----------
 function luminance(hex) {
@@ -150,8 +154,9 @@ function buildTokenEl(app, r, token, insideLink) {
 }
 
 class TokenWidget extends WidgetType {
-  constructor(r, app, token) { super(); this.r = r; this.app = app; this.token = token; }
-  eq(other) { return other.r.icon === this.r.icon && other.r.char === this.r.char && other.token === this.token; }
+  constructor(r, app, token) { super(); this.r = r; this.app = app; this.token = token; this.v = iconsVersion; }
+  // version check: an edited icon file keeps its id, so without it CM6 would reuse the stale DOM
+  eq(other) { return other.r.icon === this.r.icon && other.r.char === this.r.char && other.token === this.token && other.v === this.v; }
   toDOM() { return buildTokenEl(this.app, this.r, this.token, false); }
 }
 
@@ -209,7 +214,7 @@ const TOKEN = /^[a-z0-9][a-z0-9_-]*[a-z0-9]$/;
 // Every typeable shortcode, resolved exactly as it will render (Lucide ids lose their "lucide-"
 // prefix; an emoji shadowed by an icon of the same name resolves to the icon).
 function buildCandidates(customIds) {
-  const names = new Set(customIds);
+  const names = new Set(customIds.keys());
   for (const id of getIconIds()) names.add(id.startsWith("lucide-") ? id.slice(7) : id);
   if (settings.emoji) for (const k of Object.keys(emoji)) names.add(k);
   const out = [];
@@ -255,17 +260,18 @@ class IconSuggest extends EditorSuggest {
 export default class ShortcodeIconsPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
-    this.registeredIcons = new Set();
+    this.registeredIcons = new Map(); // shortcode id -> file path
     await this.loadCustomIcons();
 
     // ponytail: reload the whole (small) folder on any change; folder path is read live from settings
     const reload = (f) => {
-      if (f?.path?.startsWith(settings.iconFolder + "/") && f.path.endsWith(".svg")) {
+      if (isIconPath(f?.path)) {
         this.loadCustomIcons().then(() => this.refresh());
       }
     };
     this.registerEvent(this.app.vault.on("create", reload));
     this.registerEvent(this.app.vault.on("modify", reload));
+    this.registerEvent(this.app.vault.on("delete", reload));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.onRename(file, oldPath)));
 
     this.registerEditorExtension(livePreviewExt(this.app));
@@ -275,7 +281,7 @@ export default class ShortcodeIconsPlugin extends Plugin {
   }
 
   onunload() {
-    for (const id of this.registeredIcons || []) removeIcon(id);
+    for (const id of this.registeredIcons?.keys() ?? []) removeIcon(id);
   }
 
   async loadSettings() {
@@ -296,32 +302,42 @@ export default class ShortcodeIconsPlugin extends Plugin {
 
   async loadCustomIcons() {
     const folder = this.app.vault.getAbstractFileByPath(settings.iconFolder);
-    const next = new Set();
-    if (folder instanceof TFolder) {
-      await Promise.all(
-        folder.children.map(async (f) => {
-          if (!(f instanceof TFile) || f.extension !== "svg") return;
-          const id = customId(f.basename);
-          const svg = prepareSvg(await this.app.vault.cachedRead(f));
-          if (id && svg) { addIcon(id, svg); next.add(id); }
-        })
-      );
+    const files = folder instanceof TFolder ? folder.children.filter((f) => f instanceof TFile && isIconPath(f.path)) : [];
+    // SVGs first, so vespa.svg wins over vespa.png
+    files.sort((a, b) => Number(a.extension.toLowerCase() !== "svg") - Number(b.extension.toLowerCase() !== "svg"));
+    const loaded = await Promise.all(files.map(async (f) => [f, customId(f.basename), await this.iconMarkup(f)]));
+    const next = new Map();
+    for (const [f, id, markup] of loaded) {
+      if (!id || !markup) continue;
+      if (next.has(id)) {
+        console.warn(`[${this.manifest.id}] ${f.path} not loaded: :${id}: already comes from ${next.get(id)}`);
+        continue;
+      }
+      addIcon(id, markup);
+      next.set(id, f.path);
     }
     // unregister icons whose files were renamed/deleted so stale ids don't linger in the registry
-    for (const id of this.registeredIcons) if (!next.has(id)) removeIcon(id);
+    for (const id of this.registeredIcons.keys()) if (!next.has(id)) removeIcon(id);
     this.registeredIcons = next;
     this._candidates = null;
+    iconsVersion++;
   }
 
-  // When an icon .svg is renamed inside Obsidian, follow it: re-register, and (if enabled) rewrite
+  async iconMarkup(f) {
+    const ext = f.extension.toLowerCase();
+    if (ext === "svg") return prepareSvg(await this.app.vault.cachedRead(f));
+    const b64 = arrayBufferToBase64(await this.app.vault.readBinary(f));
+    return `<svg viewBox="0 0 100 100"><image href="data:${RASTER[ext]};base64,${b64}" width="100" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`;
+  }
+
+  // When an icon file is renamed inside Obsidian, follow it: re-register, and (if enabled) rewrite
   // its :shortcode: across every note — the same idea as Obsidian's "update internal links".
   async onRename(file, oldPath) {
-    const inFolder = (p) => typeof p === "string" && p.startsWith(settings.iconFolder + "/") && p.toLowerCase().endsWith(".svg");
-    const wasIcon = inFolder(oldPath);
-    const isIcon = file instanceof TFile && inFolder(file.path);
+    const wasIcon = isIconPath(oldPath);
+    const isIcon = file instanceof TFile && isIconPath(file.path);
     if (wasIcon || isIcon) { await this.loadCustomIcons(); this.refresh(); }
     if (!settings.renameSweep || !wasIcon || !isIcon) return; // only a true rename within the folder
-    const oldId = customId(oldPath.slice(oldPath.lastIndexOf("/") + 1).replace(/\.svg$/i, ""));
+    const oldId = customId(oldPath.slice(oldPath.lastIndexOf("/") + 1).replace(/\.[^.]+$/, ""));
     const newId = customId(file.basename);
     if (!oldId || !newId || oldId === newId) return;
     const needle = `:${oldId}:`, repl = `:${newId}:`;
@@ -338,6 +354,9 @@ export default class ShortcodeIconsPlugin extends Plugin {
 
   refresh() {
     for (const v of editorViews) v.dispatch({ effects: refreshEffect.of(null) });
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view.getMode() === "preview") leaf.view.previewMode.rerender(true);
+    }
   }
 
   processReading(el) {
@@ -374,7 +393,7 @@ class InlineIconsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Custom icon folder")
-      .setDesc("Vault folder holding your .svg files. The filename is the shortcode: icons/vespa.svg → :vespa:")
+      .setDesc("Vault folder holding your icon files (.svg, .png, .jpg, .ico). The filename is the shortcode: icons/vespa.svg → :vespa:")
       .addText((t) => t.setPlaceholder("Default: icons").setValue(settings.iconFolder).onChange(async (v) => {
         settings.iconFolder = v.trim() || "icons";
         await this.plugin.saveSettings();
@@ -395,7 +414,7 @@ class InlineIconsSettingTab extends PluginSettingTab {
       .setDesc("Rename an icon file and its :shortcode: is rewritten across all notes, like Obsidian's link updater. Only catches renames done inside Obsidian.")
       .addToggle((t) => t.setValue(settings.renameSweep).onChange(async (v) => { settings.renameSweep = v; await this.plugin.saveSettings(); }));
 
-    const ids = [...(this.plugin.registeredIcons || [])].sort();
+    const ids = [...this.plugin.registeredIcons.keys()].sort();
     new Setting(containerEl).setName(`Custom icons (${ids.length})`).setHeading();
     containerEl.createEl("p", { cls: "sci-gallery-hint", text: "Click an icon to copy its shortcode." });
     const grid = containerEl.createDiv({ cls: "sci-gallery-grid" });
@@ -405,6 +424,6 @@ class InlineIconsSettingTab extends PluginSettingTab {
       cell.createEl("code", { text: `:${id}:` });
       cell.addEventListener("click", () => { navigator.clipboard.writeText(`:${id}:`); new Notice(`Copied :${id}:`); });
     }
-    if (!ids.length) containerEl.createEl("p", { cls: "sci-gallery-hint", text: `No .svg files found in "${settings.iconFolder}/".` });
+    if (!ids.length) containerEl.createEl("p", { cls: "sci-gallery-hint", text: `No icon files found in "${settings.iconFolder}/".` });
   }
 }
