@@ -44,6 +44,15 @@ Give a note the same title as a shortcode (or add the shortcode as a frontmatter
 - **Emoji shortcodes** — toggle emoji resolution.
 - **Custom icons gallery** — every icon rendered with its shortcode; click to copy.
 
+## Privacy and permissions
+
+The plugin makes no network requests and sends no data anywhere. Two capabilities flagged by the community review, and why they are used:
+
+- **Listing vault files** — only when you rename an icon file inside the icon folder (from within Obsidian) and *Update notes when an icon is renamed* is on. The plugin then scans your notes for the old `:shortcode:` and rewrites it. Turn the setting off and the vault is never enumerated.
+- **Clipboard (write only)** — clicking an icon in the settings gallery copies its `:shortcode:`. The plugin never reads the clipboard.
+
+Otherwise it reads only the `.svg` files in your icon folder, and looks up note titles/aliases through Obsidian's link index to make icons link to matching notes.
+
 ## Install (manual)
 
 Download `main.js`, `manifest.json`, and `styles.css` from the latest release into `<vault>/.obsidian/plugins/dom-shortcode-icons/`, then enable the plugin in Settings → Community plugins.

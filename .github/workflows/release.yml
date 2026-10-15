@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+  # artifact attestations: OIDC token for Sigstore signing + storing the attestation
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   release:
@@ -26,6 +30,13 @@ jobs:
           fi
       - run: npm ci
       - run: npm run build
+      # signed SLSA provenance: users can verify the assets were built from this repo
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            styles.css
+            manifest.json
       - name: Create release with the three files Obsidian installs
         env:
           GH_TOKEN: ${{ github.token }}

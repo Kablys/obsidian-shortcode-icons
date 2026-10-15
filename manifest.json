@@ -1,7 +1,7 @@
 {
   "id": "dom-shortcode-icons",
   "name": "Shortcode Icons",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "minAppVersion": "1.6.0",
   "description": "Render :shortcode: icons inline (custom logos, Lucide, emoji); dark-theme aware, hover shows the shortcode, and icons link to a same-named note when one exists.",
   "author": "Kablys",
