@@ -1,10 +1,10 @@
-const {
+import {
   Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice,
   setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, TFile, TFolder,
-} = require("obsidian");
-const { ViewPlugin, Decoration, WidgetType, EditorView } = require("@codemirror/view");
-const { RangeSetBuilder, StateEffect } = require("@codemirror/state");
-const { syntaxTree } = require("@codemirror/language");
+} from "obsidian";
+import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view";
+import { RangeSetBuilder, StateEffect } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
 
 // :dog: (Lucide) · :vespa: (custom SVG in the icon folder) · :tada: (emoji)
 // underscores allowed for emoji shortcodes like :white_check_mark:
@@ -14,7 +14,7 @@ const customId = (basename) => basename.toLowerCase().replace(/[^a-z0-9]+/g, "-"
 
 // module-level shared state (functions below close over these)
 // Obsidian installs only main.js/manifest.json/styles.css, so esbuild inlines this into main.js
-const emoji = require("./emoji.json");      // shortcode -> unicode char (from github/gemoji)
+import emoji from "./emoji.json";           // shortcode -> unicode char (from github/gemoji)
 const editorViews = new Set();
 let settings = { ...DEFAULT_SETTINGS };     // kept in sync by the plugin instance
 
@@ -252,7 +252,7 @@ class IconSuggest extends EditorSuggest {
   }
 }
 
-module.exports = class InlineIconsPlugin extends Plugin {
+export default class ShortcodeIconsPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     this.registeredIcons = new Set();
@@ -364,7 +364,7 @@ module.exports = class InlineIconsPlugin extends Plugin {
       node.replaceWith(frag);
     }
   }
-};
+}
 
 class InlineIconsSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
@@ -375,7 +375,7 @@ class InlineIconsSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Custom icon folder")
       .setDesc("Vault folder holding your .svg files. The filename is the shortcode: icons/vespa.svg → :vespa:")
-      .addText((t) => t.setPlaceholder("icons").setValue(settings.iconFolder).onChange(async (v) => {
+      .addText((t) => t.setPlaceholder("Default: icons").setValue(settings.iconFolder).onChange(async (v) => {
         settings.iconFolder = v.trim() || "icons";
         await this.plugin.saveSettings();
       }));

@@ -2,9 +2,17 @@
   "name": "obsidian-shortcode-icons",
   "private": true,
   "scripts": {
-    "build": "esbuild src/main.js --bundle --format=cjs --platform=browser --target=es2021 --external:obsidian --external:@codemirror/* --outfile=main.js"
+    "build": "esbuild src/main.js --bundle --format=cjs --platform=browser --target=es2021 --external:obsidian --external:@codemirror/* --outfile=main.js",
+    "lint": "eslint ."
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.2",
+    "obsidian": "^1.14.4",
+    "typescript": "^5.4.5"
   }
 }
