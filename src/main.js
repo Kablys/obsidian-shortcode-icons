@@ -130,6 +130,26 @@ function resolve(token) {
 
 const refreshEffect = StateEffect.define();
 
+// addIcon registers one markup, so every rendered copy shares its internal ids, and url(#id) resolves
+// to the first copy in the document — often a hidden one (Live Preview behind Reading view), which
+// leaves gradients/masks/filters unpainted. Give each copy its own ids.
+let idSeq = 0;
+function setIconUnique(el, icon) {
+  setIcon(el, icon);
+  const nodes = el.querySelectorAll("[id]");
+  if (!nodes.length) return;
+  const sfx = "-sci" + ++idSeq, ids = new Set();
+  for (const n of nodes) { ids.add(n.id); n.id += sfx; }
+  const fix = (s) => s.replace(/url\(\s*(['"]?)#([^'")\s]+)\1\s*\)/g, (m, q, id) => (ids.has(id) ? `url(#${id}${sfx})` : m));
+  for (const n of el.querySelectorAll("*")) {
+    for (const a of n.attributes) {
+      if ((a.name === "href" || a.name === "xlink:href") && ids.has(a.value.slice(1))) a.value += sfx;
+      else if (a.value.includes("url(")) a.value = fix(a.value);
+    }
+    if (n.localName === "style") n.textContent = fix(n.textContent);
+  }
+}
+
 // Build the inline element for a resolved token: an icon/emoji span whose aria-label is the
 // `:shortcode:` (Obsidian shows it as the hover tooltip; doubles as the screen-reader label), wrapped
 // in a clickable internal-link when auto-link is on and a note (by name OR alias) exists.
@@ -139,7 +159,7 @@ function buildTokenEl(app, r, token, insideLink) {
   const glyph = r.char
     ? createSpan({ cls: "sci-emoji", text: r.char, attr: { "aria-label": tip } })
     : createSpan({ cls: "sci-icon", attr: { "aria-label": tip, role: "img" } });
-  if (r.icon) setIcon(glyph, r.icon);
+  if (r.icon) setIconUnique(glyph, r.icon);
   if (insideLink || !settings.autoLink) return glyph;
   const dest = app.metadataCache.getFirstLinkpathDest(token, ""); // resolves via aliases too
   if (!dest) return glyph;
@@ -247,7 +267,7 @@ class IconSuggest extends EditorSuggest {
   renderSuggestion(c, el) {
     el.addClass("sci-suggestion");
     if (c.r.char) el.createSpan({ cls: "sci-emoji", text: c.r.char });
-    else setIcon(el.createSpan({ cls: "sci-icon" }), c.r.icon);
+    else setIconUnique(el.createSpan({ cls: "sci-icon" }), c.r.icon);
     el.createSpan({ text: c.name });
     el.createSpan({ cls: "sci-suggestion-source", text: c.source });
   }
@@ -422,7 +442,7 @@ class InlineIconsSettingTab extends PluginSettingTab {
       const grid = containerEl.createDiv({ cls: "sci-gallery-grid" });
       for (const [id, path] of packs.get(pack)) {
         const cell = grid.createDiv({ cls: "sci-gallery-cell", attr: { "aria-label": `:${id}:` } });
-        setIcon(cell.createSpan({ cls: "sci-icon" }), id);
+        setIconUnique(cell.createSpan({ cls: "sci-icon" }), id);
         const meta = cell.createDiv({ cls: "sci-gallery-meta" });
         meta.createEl("code", { text: `:${id}:` });
         cells.set(id, { cell, uses: meta.createSpan({ cls: "sci-gallery-uses", text: "…" }) });
