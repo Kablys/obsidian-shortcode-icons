@@ -64,3 +64,25 @@
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
 }
+.sci-gallery-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sci-gallery-uses {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+.sci-gallery-cell.sci-unused {
+  opacity: 0.6;
+}
+.sci-gallery-cell.sci-unused .sci-gallery-uses {
+  color: var(--text-warning);
+}
+.sci-gallery-rename {
+  margin-left: auto;
+  opacity: 0.4;
+}
+.sci-gallery-cell:hover .sci-gallery-rename {
+  opacity: 1;
+}

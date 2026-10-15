@@ -1,5 +1,5 @@
 import {
-  Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice,
+  Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice, Modal,
   setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, arrayBufferToBase64, TFile, TFolder, Vault,
 } from "obsidian";
 import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view";
@@ -272,7 +272,8 @@ export default class ShortcodeIconsPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("create", reload));
     this.registerEvent(this.app.vault.on("modify", reload));
     this.registerEvent(this.app.vault.on("delete", reload));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.onRename(file, oldPath)));
+    // kept so the gallery's rename can wait for the icon reload + note sweep it triggers
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { this.lastRename = this.onRename(file, oldPath); }));
 
     this.registerEditorExtension(livePreviewExt(this.app));
     this.registerEditorSuggest(new IconSuggest(this.app, this));
@@ -359,6 +360,17 @@ export default class ShortcodeIconsPlugin extends Plugin {
     if (uses) new Notice(`Shortcode Icons: ${needle} → ${repl} in ${files} note${files === 1 ? "" : "s"} (${uses} use${uses === 1 ? "" : "s"})`);
   }
 
+  // id -> names of notes containing :id: (shortcut: also counts tokens inside code blocks)
+  async usage() {
+    const uses = new Map();
+    for (const md of this.app.vault.getMarkdownFiles()) {
+      const found = new Set();
+      for (const m of (await this.app.vault.cachedRead(md)).matchAll(RE)) if (this.registeredIcons.has(m[1])) found.add(m[1]);
+      for (const id of found) uses.set(id, [...(uses.get(id) ?? []), md.basename]);
+    }
+    return uses;
+  }
+
   refresh() {
     for (const v of editorViews) v.dispatch({ effects: refreshEffect.of(null) });
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
@@ -393,6 +405,49 @@ export default class ShortcodeIconsPlugin extends Plugin {
 }
 
 class InlineIconsSettingTab extends PluginSettingTab {
+  // Custom icons grouped by pack (subfolder), each with its usage count and a rename button.
+  gallery(containerEl) {
+    const icons = [...this.plugin.registeredIcons].sort((a, b) => a[0].localeCompare(b[0]));
+    new Setting(containerEl).setName(`Custom icons (${icons.length})`).setHeading();
+    const hint = containerEl.createEl("p", { cls: "sci-gallery-hint", text: "Click an icon to copy its shortcode. Counting uses…" });
+    if (!icons.length) return hint.setText(`No icon files found in "${settings.iconFolder}/".`);
+    const root = settings.iconFolder + "/", packs = new Map();
+    for (const [id, path] of icons) {
+      const rel = path.slice(root.length), pack = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+      packs.set(pack, [...(packs.get(pack) ?? []), [id, path]]);
+    }
+    const cells = new Map();
+    for (const pack of [...packs.keys()].sort()) {
+      if (packs.size > 1) new Setting(containerEl).setName(pack || "Top level").setHeading();
+      const grid = containerEl.createDiv({ cls: "sci-gallery-grid" });
+      for (const [id, path] of packs.get(pack)) {
+        const cell = grid.createDiv({ cls: "sci-gallery-cell", attr: { "aria-label": `:${id}:` } });
+        setIcon(cell.createSpan({ cls: "sci-icon" }), id);
+        const meta = cell.createDiv({ cls: "sci-gallery-meta" });
+        meta.createEl("code", { text: `:${id}:` });
+        cells.set(id, { cell, uses: meta.createSpan({ cls: "sci-gallery-uses", text: "…" }) });
+        const rename = cell.createSpan({ cls: "sci-gallery-rename clickable-icon", attr: { "aria-label": "Rename" } });
+        setIcon(rename, "pencil");
+        rename.addEventListener("click", (evt) => {
+          evt.stopPropagation();
+          new RenameIconModal(this.app, this.plugin, id, path, () => this.display()).open();
+        });
+        cell.addEventListener("click", () => { void navigator.clipboard.writeText(`:${id}:`); new Notice(`Copied :${id}:`); });
+      }
+    }
+    void this.plugin.usage().then((uses) => {
+      let unused = 0;
+      for (const [id, { cell, uses: el }] of cells) {
+        const notes = uses.get(id) ?? [];
+        el.setText(notes.length ? `${notes.length} note${notes.length === 1 ? "" : "s"}` : "Unused");
+        if (notes.length) el.setAttr("aria-label", notes.slice(0, 15).join(", ") + (notes.length > 15 ? ", …" : ""));
+        cell.toggleClass("sci-unused", !notes.length);
+        if (!notes.length) unused++;
+      }
+      hint.setText(`Click an icon to copy its shortcode. ${unused} of ${cells.size} unused. Hover a count to see the notes.`);
+    });
+  }
+
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
   display() {
     const { containerEl } = this;
@@ -421,16 +476,37 @@ class InlineIconsSettingTab extends PluginSettingTab {
       .setDesc("Rename an icon file and its :shortcode: is rewritten across all notes, like Obsidian's link updater. Only catches renames done inside Obsidian.")
       .addToggle((t) => t.setValue(settings.renameSweep).onChange(async (v) => { settings.renameSweep = v; await this.plugin.saveSettings(); }));
 
-    const ids = [...this.plugin.registeredIcons.keys()].sort();
-    new Setting(containerEl).setName(`Custom icons (${ids.length})`).setHeading();
-    containerEl.createEl("p", { cls: "sci-gallery-hint", text: "Click an icon to copy its shortcode." });
-    const grid = containerEl.createDiv({ cls: "sci-gallery-grid" });
-    for (const id of ids) {
-      const cell = grid.createDiv({ cls: "sci-gallery-cell", attr: { "aria-label": `:${id}:` } });
-      setIcon(cell.createSpan({ cls: "sci-icon" }), id);
-      cell.createEl("code", { text: `:${id}:` });
-      cell.addEventListener("click", () => { navigator.clipboard.writeText(`:${id}:`); new Notice(`Copied :${id}:`); });
-    }
-    if (!ids.length) containerEl.createEl("p", { cls: "sci-gallery-hint", text: `No icon files found in "${settings.iconFolder}/".` });
+    this.gallery(containerEl);
+  }
+}
+
+// Renames the icon's file (same folder and extension). The vault rename event then reloads icons
+// and, when enabled, rewrites :old: -> :new: across notes.
+class RenameIconModal extends Modal {
+  constructor(app, plugin, id, path, done) { super(app); Object.assign(this, { plugin, id, path, done }); }
+  onOpen() {
+    this.titleEl.setText(`Rename :${this.id}:`);
+    let value = this.id;
+    new Setting(this.contentEl)
+      .setName("New shortcode")
+      .setDesc(settings.renameSweep ? "Notes that use it are updated too." : "Notes are not updated: the rename setting is off.")
+      .addText((t) => {
+        t.setValue(value).onChange((v) => { value = v; });
+        t.inputEl.addEventListener("keydown", (evt) => { if (evt.key === "Enter") void this.submit(value); });
+        window.setTimeout(() => t.inputEl.select(), 0);
+      });
+    new Setting(this.contentEl).addButton((b) => b.setButtonText("Rename").setCta().onClick(() => void this.submit(value)));
+  }
+  async submit(value) {
+    const name = customId(value);
+    if (!name) return new Notice("Use letters, digits or hyphens.");
+    if (name === this.id) return this.close();
+    if (this.plugin.registeredIcons.has(name)) return new Notice(`:${name}: already exists.`);
+    const file = this.app.vault.getAbstractFileByPath(this.path);
+    if (!(file instanceof TFile)) return new Notice(`${this.path} no longer exists.`);
+    await this.app.fileManager.renameFile(file, `${this.path.slice(0, this.path.lastIndexOf("/"))}/${name}.${file.extension}`);
+    await this.plugin.lastRename;
+    this.close();
+    this.done();
   }
 }
