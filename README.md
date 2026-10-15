@@ -5,14 +5,14 @@ Render `:shortcode:` icons inline in your notes — your own SVG logos, the full
 
 ## Features
 
-- **Custom SVG logos** — drop any `.svg` into an `icons/` folder in your vault; the filename becomes the shortcode. `icons/vespa.svg` → `:vespa:`. Full color is preserved.
+- **Custom logos** — drop any `.svg`, `.png`, `.jpg` or `.ico` into an `icons/` folder in your vault; the filename becomes the shortcode. `icons/vespa.svg` → `:vespa:`. Full color is preserved. Organize them in subfolders (packs) if you like: `icons/data/vespa.svg` is still `:vespa:`.
 - **Lucide** — every built-in Obsidian icon works: `:search:`, `:rocket:`, `:git-branch:`.
 - **Emoji** — GitHub-style shortcodes as a fallback: `:tada:` 🎉, `:white_check_mark:` ✅.
-- **Autocomplete** — type `:` + 2 characters for a searchable list of all three sources, with previews.
+- **Autocomplete** — type `:` + 2 characters for a fuzzy-searchable list of all three sources, with previews; your own icons rank first.
 - **Dark-theme aware** — near-black / single-color logos automatically follow your theme's text color (via `currentColor`); full-color logos are left untouched.
 - **Icons link to notes** — if a note's title (or alias) matches a shortcode, the icon becomes a clickable internal link that opens it. `:vespa:` opens your `Vespa` note.
 - **Hover tooltip** — mousing over any icon shows the `:shortcode:` you'd type.
-- **Settings gallery** — browse every custom icon and its shortcode; click to copy.
+- **Settings gallery** — every custom icon grouped by pack, with how many notes use it (hover to list them) and unused ones flagged. Click to copy a shortcode, or rename an icon right there (notes update too).
 
 ## Usage
 
@@ -59,7 +59,7 @@ Download `main.js`, `manifest.json`, and `styles.css` from the latest release in
 
 ## Development
 
-Source lives in `src/`; `npm run build` (esbuild) bundles it — including `src/emoji.json` — into `main.js`, which is gitignored and attached to each release.
+Source lives in `src/`; `npm run build` (esbuild) bundles it — including `src/emoji.json` — into `main.js`, which is gitignored and attached to each release. `npm run lint` checks it with Obsidian's official [eslint-plugin-obsidianmd](https://github.com/obsidianmd/eslint-plugin), using the same configuration as the community directory's automated review.
 
 ## Credits
 
