@@ -1,6 +1,6 @@
 import {
   Plugin, PluginSettingTab, Setting, EditorSuggest, Keymap, Notice,
-  setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, arrayBufferToBase64, TFile, TFolder,
+  setIcon, getIcon, getIconIds, addIcon, removeIcon, prepareFuzzySearch, arrayBufferToBase64, TFile, TFolder, Vault,
 } from "obsidian";
 import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view";
 import { RangeSetBuilder, StateEffect } from "@codemirror/state";
@@ -302,9 +302,11 @@ export default class ShortcodeIconsPlugin extends Plugin {
 
   async loadCustomIcons() {
     const folder = this.app.vault.getAbstractFileByPath(settings.iconFolder);
-    const files = folder instanceof TFolder ? folder.children.filter((f) => f instanceof TFile && isIconPath(f.path)) : [];
-    // SVGs first, so vespa.svg wins over vespa.png
-    files.sort((a, b) => Number(a.extension.toLowerCase() !== "svg") - Number(b.extension.toLowerCase() !== "svg"));
+    // subfolders are just packs for organizing: icons/brands/nike.svg is still :nike:
+    const files = [];
+    if (folder instanceof TFolder) Vault.recurseChildren(folder, (f) => { if (f instanceof TFile && isIconPath(f.path)) files.push(f); });
+    // SVGs first (vespa.svg beats vespa.png), then by path, so a duplicate name always resolves the same way
+    files.sort((a, b) => Number(a.extension.toLowerCase() !== "svg") - Number(b.extension.toLowerCase() !== "svg") || a.path.localeCompare(b.path));
     const loaded = await Promise.all(files.map(async (f) => [f, customId(f.basename), await this.iconMarkup(f)]));
     const next = new Map();
     for (const [f, id, markup] of loaded) {
@@ -333,6 +335,11 @@ export default class ShortcodeIconsPlugin extends Plugin {
   // When an icon file is renamed inside Obsidian, follow it: re-register, and (if enabled) rewrite
   // its :shortcode: across every note — the same idea as Obsidian's "update internal links".
   async onRename(file, oldPath) {
+    if (file instanceof TFolder && [oldPath, file.path].some((p) => `${p}/`.startsWith(settings.iconFolder + "/"))) {
+      await this.loadCustomIcons(); // a pack folder was renamed or moved: icon paths changed, shortcodes didn't
+      this.refresh();
+      return;
+    }
     const wasIcon = isIconPath(oldPath);
     const isIcon = file instanceof TFile && isIconPath(file.path);
     if (wasIcon || isIcon) { await this.loadCustomIcons(); this.refresh(); }
@@ -393,7 +400,7 @@ class InlineIconsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Custom icon folder")
-      .setDesc("Vault folder holding your icon files (.svg, .png, .jpg, .ico). The filename is the shortcode: icons/vespa.svg → :vespa:")
+      .setDesc("Vault folder holding your icon files (.svg, .png, .jpg, .ico), in subfolders if you like. The filename is the shortcode: icons/brands/vespa.svg → :vespa:")
       .addText((t) => t.setPlaceholder("Default: icons").setValue(settings.iconFolder).onChange(async (v) => {
         settings.iconFolder = v.trim() || "icons";
         await this.plugin.saveSettings();
